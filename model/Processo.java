@@ -1,14 +1,18 @@
 package model;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-public abstract class Processo {
+public abstract class Processo implements Serializable {
   private int pid;
   private int threads;
   private int pri;
   private int nice;
   private int ppid;
+  private int euid;
+
+  private char state;
   private List<Integer> children;
 
   public Processo() {
@@ -21,6 +25,8 @@ public abstract class Processo {
   public void setPri(int pri) {this.pri = pri;}
   public void setNice (int nice) {this.nice = nice;}
   public void setPpid(int ppid) {this.ppid = ppid;}
+  public void setState(char state) {this.state = state;}
+  public void setEUID(int euid) {this.euid = euid;}
 
   public void addChild(int child) {
     // Guarda o PID do filho; não garante que o filho ainda exista quando você for montar a árvore.
@@ -32,6 +38,8 @@ public abstract class Processo {
   public int getPri() {return pri;}
   public int getNice() {return nice;}
   public int getPpid() {return ppid;}
+  public char getState() {return state;}
+  public int getEUID() {return euid;}
 
   public List<Integer> getChildren() {return children;}
 }

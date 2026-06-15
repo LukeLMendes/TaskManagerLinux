@@ -17,7 +17,7 @@ import model.Processo;
 import model.Task;
 import model.Kthr;
 
-public class ReadProcs {
+public class ProcfsProcessRepository implements ProcessRepository{
 
   private static Map<String, String> readStatusKeyValues(Path statusFile) throws IOException {
     Map<String, String> kv = new HashMap<>();
@@ -61,8 +61,8 @@ public class ReadProcs {
       return false;
     }
   }
-
-  public static List<Processo> readTask () { 
+  @Override
+  public List<Processo> readTask() {
     Path pathDir = Paths.get("/proc");
     List<Processo> list = new ArrayList<>();
 
@@ -86,8 +86,14 @@ public class ReadProcs {
                 int ppid = firstInt(kv.get("PPid"));
                 int threads = firstInt(kv.get("Threads"));
 
+                char state = kv.get("State").charAt(0);
+
                 int virt = firstInt(kv.get("VmSize"));
                 int res  = firstInt(kv.get("VmRSS"));
+
+                String uids = kv.get("Uid");
+                String parts[] = uids.split("//h+");
+                int euid = Integer.parseInt(parts[1]);
 
                 // Nem todo processo expõe todos os campos; por isso firstInt(null) -> 0
                 int rssFile  = firstInt(kv.get("RssFile"));
@@ -97,6 +103,8 @@ public class ReadProcs {
                 task.setPid(pid);
                 task.setPpid(ppid);
                 task.setThreads(threads);
+                task.setEUID(euid);
+                task.setState(state);
                 task.setVirt(virt);
                 task.setRes(res);
                 task.setShr(shr);
@@ -148,7 +156,7 @@ public class ReadProcs {
     return list;
   }
 
-  public static List<Processo> readKthr() { //mudar isso depois para HashMap
+  public List<Processo> readKthr() { //mudar isso depois para HashMap
     Path pathDir = Paths.get("/proc");
     List<Processo> list = new ArrayList<>();
 
@@ -170,6 +178,11 @@ public class ReadProcs {
                 int pid = firstInt(kv.get("Pid"));
                 int ppid = firstInt(kv.get("PPid"));
                 int threads = firstInt(kv.get("Threads"));
+                char state = kv.get("State").charAt(0);
+
+                String uids = kv.get("Uid");
+                String parts[] = uids.split("//h+");
+                int euid = Integer.parseInt(parts[1]);
 
                 // "Kthreads" pode não existir em alguns kernels; firstInt(null) vira 0.
                 int kthreads = firstInt(kv.get("Kthreads"));
@@ -177,6 +190,8 @@ public class ReadProcs {
                 kthr.setPid(pid);
                 kthr.setPpid(ppid);
                 kthr.setThreads(threads);
+                kthr.setEUID(euid);
+                kthr.setState(state);
                 kthr.setKthreads(kthreads);
 
               } catch (IOException e) {

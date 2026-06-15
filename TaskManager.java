@@ -64,7 +64,8 @@ public class TaskManager {
 		}
 
 		// dados dos processos
-		List<Processo> tasks = ReadProcs.readTask();
+		ProcessRepository proc = new ProcfsProcessRepository();
+		List<Processo> tasks = proc.readTask();
 		System.out.println("Number of tasks: " + tasks.size());
 		System.out.print("\n");
 		for (Processo task : tasks) {
