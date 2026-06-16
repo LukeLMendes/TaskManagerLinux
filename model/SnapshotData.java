@@ -10,7 +10,7 @@ import java.util.ArrayList;
  * No diagrama UML, SnapshotData possui composição com SystemSnapshot (0..*) e
  * agrega Processo (0..*). Cada instância guarda a lista de tasks e kthreads
  * registrados no momento da captura, junto com as informações gerais do sistema
- * (via SystemInfos) e as estatísticas de I/O dos processos.
+ * (via SystemSnapshot) e as estatísticas de I/O dos processos.
  *
  * Implementa Serializable para que objetos desta classe possam ser convertidos
  * em bytes e salvos em arquivo pelo FileSnapshotRepository.
@@ -28,8 +28,8 @@ public class SnapshotData implements Serializable {
 
     // Informações gerais do sistema no momento do snapshot:
     // memória total/disponível, uptime, uso de CPU, contagem de tasks/kthreads/threads.
-    // Corresponde à classe SystemInfos já existente no repositório.
-    private SystemInfos systemInfos;
+    // Corresponde à classe SystemSnapshot já existente no repositório.
+    private SystemSnapshot systemInfos;
 
     // Lista de processos de usuário (Tasks) registrados no momento do snapshot.
     // Cada entrada é uma instância de Task (subclasse de Processo).
@@ -63,7 +63,7 @@ public class SnapshotData implements Serializable {
      * @param tasks       lista de processos de usuário coletados via /proc
      * @param kthreads    lista de kernel threads coletadas via /proc
      */
-    public SnapshotData(SystemInfos systemInfos,
+    public SnapshotData(SystemSnapshot systemInfos,
                         List<Processo> tasks,
                         List<Processo> kthreads) {
         // Chama o construtor padrão para inicializar timestamp e listas.
@@ -81,7 +81,7 @@ public class SnapshotData implements Serializable {
     public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
 
     /** Define as informações gerais do sistema (CPU, memória, uptime...). */
-    public void setSystemInfos(SystemInfos systemInfos) { this.systemInfos = systemInfos; }
+    public void setSystemSnapshot(SystemSnapshot systemInfos) { this.systemInfos = systemInfos; }
 
     /** Substitui a lista de processos de usuário deste snapshot. */
     public void setTasks(List<Processo> tasks) { this.tasks = tasks; }
@@ -100,7 +100,7 @@ public class SnapshotData implements Serializable {
     public long getTimestamp() { return timestamp; }
 
     /** Retorna as informações gerais do sistema no momento do snapshot. */
-    public SystemInfos getSystemInfos() { return systemInfos; }
+    public SystemSnapshot getSystemSnapshot() { return systemInfos; }
 
     /** Retorna a lista de processos de usuário capturados. */
     public List<Processo> getTasks() { return tasks; }
