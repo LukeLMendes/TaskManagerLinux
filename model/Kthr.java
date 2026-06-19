@@ -1,6 +1,8 @@
 package model;
 
 public class Kthr extends Processo {
+  private static final long serialVersionUID = 1L;
+
   private int kthreads;
   private long virt;
   private long res;

@@ -166,6 +166,30 @@ public class TaskManagerService {
         systemSnapshot.setNumTasks(systemRepository.countTasks(tasks));
         systemSnapshot.setNumKthreads(systemRepository.countKthr(kthreads));
         systemSnapshot.setNumThreads(systemRepository.countThreads(tasks, kthreads));
+
+        // 4. Lê /proc/meminfo uma vez e preenche memória e swap no snapshot.
+        java.util.Map<String, Long> mem = systemRepository.memInfo();
+
+        long memTotal      = mem.getOrDefault("MemTotal",      0L);
+        long memFree       = mem.getOrDefault("MemFree",       0L);
+        long buffers       = mem.getOrDefault("Buffers",       0L);
+        long cached        = mem.getOrDefault("Cached",        0L);
+        // SReclaimable: parte do slab de kernel que pode ser recuperada pelo SO.
+        // O htop subtrai esse valor para não inflar o "usado" com cache reclaimável.
+        long sreclaimable  = mem.getOrDefault("SReclaimable",  0L);
+
+        // Fórmula idêntica ao htop:
+        //   used = MemTotal - MemFree - Buffers - Cached - SReclaimable
+        long memUsed = memTotal - memFree - buffers - cached - sreclaimable;
+
+        systemSnapshot.setMemTotal(memTotal);
+        systemSnapshot.setMemAvailable(mem.getOrDefault("MemAvailable", 0L));
+        systemSnapshot.setMemUsed(memUsed);
+        systemSnapshot.setSwapTotal(mem.getOrDefault("SwapTotal", 0L));
+        systemSnapshot.setSwapFree(mem.getOrDefault("SwapFree",  0L));
+
+        // 5. Load average de /proc/loadavg.
+        systemSnapshot.setLoadAvg(systemRepository.loadAvg());
     }
 
     // -------------------------------------------------------------------------

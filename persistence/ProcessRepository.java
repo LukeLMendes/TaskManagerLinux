@@ -1,7 +1,7 @@
 package persistence;
 
 import java.util.List;
-import  model.Processo;
+import model.Processo;
 
 public interface ProcessRepository {
   public List<Processo> readTask();
