@@ -4,6 +4,6 @@ import java.util.List;
 import model.Processo;
 
 public interface ProcessRepository {
-  public List<Processo> readTask();
-  public List<Processo> readKthr();
+    public List<Processo> readTask();
+    public List<Processo> readKthr();
 }

@@ -2,6 +2,7 @@ package view;
 
 import javafx.beans.property.*;
 import javafx.collections.FXCollections;
+import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.scene.control.*;
@@ -10,70 +11,32 @@ import javafx.scene.layout.VBox;
 import model.Processo;
 import model.Kthr;
 import model.ProcessIOStat;
+import model.ProcessoZumbi;
 
 import java.util.*;
+import java.util.function.BiConsumer;
 
-/**
- * Painel de I/O no estilo htop, com hierarquia ASCII na coluna COMMAND.
- *
- * Exibe TODOS os processos (tasks + kthreads) em ordem de árvore (DFS por PPID),
- * usando os mesmos prefixos ├─ / └─ / │ do TreePanel para mostrar a hierarquia.
- * As colunas READ e WRITE vêm de /proc/<pid>/io; processos sem permissão ou
- * sem dado mostram "N/A".
- *
- * Colunas: PID | USER | READ | WRITE | COMMAND
- *
- * Regra de tipagem (mesma dos outros painéis):
- *   CellValueFactory → tipo nativo (int, double, Processo) para ordenação correta.
- *   CellFactory      → exclusivamente formatação e cor (nunca lógica de dados).
- *
- * A árvore é recalculada inteiramente a cada update() — sem estado persistente.
- */
 public class IOPanel extends VBox {
 
-    // -------------------------------------------------------------------------
-    // Componentes e estado
-    // -------------------------------------------------------------------------
-
-    /**
-     * Tabela plana cujo conteúdo é a listagem DFS da árvore de processos.
-     * O tipo de item é Processo — READ/WRITE são obtidos via ioByPid.
-     */
     private final TableView<Processo> table;
-
-    /**
-     * Lista observável que alimenta a tabela.
-     * Substituída a cada update() com a nova ordem DFS.
-     */
     private final ObservableList<Processo> processList;
 
-    /**
-     * Mapa PID → prefixo ASCII calculado no último update().
-     * Consultado pelo CellFactory da coluna COMMAND.
-     */
-    private final Map<Integer, String> prefixMap = new HashMap<>();
+    private TableColumn<Processo, Number>   colPid;
+    private TableColumn<Processo, Processo> colUser;
+    private TableColumn<Processo, Processo> colCmd;
 
-    /**
-     * Mapa PID → dados de I/O do último update().
-     * Processos ausentes não têm dado de I/O (exibição: "N/A").
-     */
+    private BiConsumer<String, TableColumn.SortType> sortChangeListener;
+    private boolean suppressSortEvent = false;
+
+    private final Map<Integer, String>      prefixMap = new HashMap<>();
     private final Map<Integer, ProcessIOStat> ioByPid = new HashMap<>();
 
-    /**
-     * Controla se o painel exibe a hierarquia pai-filho (true) ou uma lista
-     * plana ordenada por PID (false). Alternado pela tecla F5 via MainFrame.
-     * Inicia como true (árvore), igual ao TreePanel no modo MAIN.
-     */
     private boolean modoArvore = true;
+    private String filtro = "";
 
-    // -------------------------------------------------------------------------
-    // Construtor
-    // -------------------------------------------------------------------------
+    public void setFiltro(String f) { this.filtro = f.trim().toLowerCase(); }
+    public void setTableContextMenu(javafx.scene.control.ContextMenu menu) { table.setContextMenu(menu); }
 
-    /**
-     * Cria o painel de I/O com a tabela configurada.
-     * Chamado pelo MainFrame durante a inicialização da interface.
-     */
     public IOPanel() {
         setPadding(new Insets(0));
         setSpacing(0);
@@ -90,26 +53,10 @@ public class IOPanel extends VBox {
         VBox.setVgrow(table, javafx.scene.layout.Priority.ALWAYS);
     }
 
-    // -------------------------------------------------------------------------
-    // API pública — chamada pelo TaskManagerController
-    // -------------------------------------------------------------------------
-
-    /**
-     * Reconstrói a lista de processos em ordem DFS e atualiza os dados de I/O.
-     *
-     * Recebe todos os processos para construir a árvore completa (mesmo que um
-     * processo não tenha dado de I/O — aparece com "N/A"). Os dados de I/O
-     * são indexados por PID para acesso O(1) dentro dos CellFactories.
-     *
-     * @param stats    dados de leitura/escrita por PID (pode ter menos entradas que processos)
-     * @param tasks    lista de processos de usuário (com PPID e comm populados)
-     * @param kthreads lista de kernel threads (com PPID e comm populados)
-     */
     public void update(List<ProcessIOStat> stats,
                        List<Processo> tasks,
                        List<Processo> kthreads) {
 
-        // Reconstrói o índice PID → IOStat a cada refresh.
         ioByPid.clear();
         if (stats != null) {
             for (ProcessIOStat s : stats) {
@@ -119,17 +66,21 @@ public class IOPanel extends VBox {
 
         if (tasks == null && kthreads == null) return;
 
-        // Combina tasks e kthreads numa lista única.
         List<Processo> all = new ArrayList<>();
         if (tasks    != null) all.addAll(tasks);
         if (kthreads != null) all.addAll(kthreads);
+        if (!filtro.isEmpty()) {
+            all.removeIf(p -> {
+                String cmd = (p.getCmdline().isEmpty() ? p.getComm() : p.getCmdline()).toLowerCase();
+                return !cmd.contains(filtro) && !String.valueOf(p.getPid()).contains(filtro);
+            });
+        }
 
         int pidSelecionado = pidSelecionadoAtual();
         Map<Integer, String> novoPrefixMap = new HashMap<>();
         List<Processo> flatList;
 
         if (modoArvore) {
-            // ── Modo árvore: DFS pré-ordem com prefixos ├─ / └─ / │ ──────────
             Map<Integer, Processo> pidMap = new HashMap<>();
             for (Processo p : all) pidMap.put(p.getPid(), p);
 
@@ -144,17 +95,13 @@ public class IOPanel extends VBox {
             for (List<Processo> ch : childMap.values()) ch.sort(Comparator.comparingInt(Processo::getPid));
 
             flatList = new ArrayList<>();
-            for (int i = 0; i < roots.size(); i++) {
-                boolean isLast   = (i == roots.size() - 1);
-                String branchStr = (roots.size() == 1) ? ""    : (isLast ? "└─ " : "├─ ");
-                String contStr   = (roots.size() == 1) ? ""    : (isLast ? "   " : "│  ");
-                dfs(roots.get(i), branchStr, contStr, childMap, flatList, novoPrefixMap);
+            for (Processo root : roots) {
+                dfs(root, "", "", childMap, flatList, novoPrefixMap);
             }
         } else {
-            // ── Modo lista: ordenação simples por PID, sem prefixos ───────────
-            // prefixMap fica vazio; o CellFactory de COMMAND não adiciona prefixo.
             flatList = new ArrayList<>(all);
-            flatList.sort(Comparator.comparingInt(Processo::getPid));
+            java.util.Comparator<Processo> comp = table.getComparator();
+            flatList.sort(comp != null ? comp : Comparator.comparingInt(Processo::getPid));
         }
 
         prefixMap.clear();
@@ -170,22 +117,14 @@ public class IOPanel extends VBox {
 
     private void restaurarSelecao(int pid) {
         if (pid == -1) return;
-        for (int i = 0; i < processList.size(); i++) {
-            if (processList.get(i).getPid() == pid) {
-                table.getSelectionModel().select(i);
+        for (Processo p : processList) {
+            if (p.getPid() == pid) {
+                table.getSelectionModel().select(p);
                 return;
             }
         }
     }
 
-    /**
-     * Percorre a sub-árvore de {@code node} em pré-ordem, preenchendo a lista
-     * plana e calculando o prefixo de hierarquia ASCII para cada processo.
-     *
-     * A lógica de prefixo é idêntica ao TreePanel para manter consistência visual:
-     *   "├─ " → nó com irmãos depois dele   |   cont. = "│  " (linha vertical)
-     *   "└─ " → último filho do pai          |   cont. = "   " (espaços)
-     */
     private void dfs(Processo node, String branchStr, String contStr,
                      Map<Integer, List<Processo>> childMap,
                      List<Processo> result, Map<Integer, String> prefixes) {
@@ -202,34 +141,28 @@ public class IOPanel extends VBox {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Configuração das colunas
-    // -------------------------------------------------------------------------
-
-    /**
-     * Cria as colunas da tabela: PID | USER | READ | WRITE | COMMAND.
-     *
-     * USER e COMMAND usam o objeto Processo diretamente (SimpleObjectProperty<Processo>)
-     * para evitar o problema de timing com getTableRow().getItem() durante o layout.
-     *
-     * READ e WRITE consultam ioByPid em tempo de renderização. Quando o PID não
-     * está no mapa (sem dado de I/O), exibem "N/A" em cinza.
-     */
     @SuppressWarnings("unchecked")
     private void configurarColunas() {
 
-        // ── PID ──────────────────────────────────────────────────────────────
-        TableColumn<Processo, Number> colPid = new TableColumn<>("PID");
+        colPid = new TableColumn<>("PID");
         colPid.setCellValueFactory(cell ->
             new SimpleIntegerProperty(cell.getValue().getPid()));
         colPid.setPrefWidth(65);
+        colPid.setReorderable(false);
+        colPid.setCellFactory(col -> new TableCell<>() {
+            @Override protected void updateItem(Number item, boolean empty) {
+                super.updateItem(item, empty);
+                setStyle("-fx-alignment: CENTER;");
+                setText(empty || item == null ? null : item.toString());
+            }
+        });
 
-        // ── USER ─────────────────────────────────────────────────────────────
-        // Passa o Processo completo para que o CellFactory resolva EUID → nome.
-        TableColumn<Processo, Processo> colUser = new TableColumn<>("USER");
+        colUser = new TableColumn<>("USER");
         colUser.setCellValueFactory(cell ->
             new SimpleObjectProperty<>(cell.getValue()));
         colUser.setPrefWidth(90);
+        colUser.setReorderable(false);
+        colUser.setComparator(Comparator.comparingInt(Processo::getEUID));
         colUser.setCellFactory(col -> new TableCell<>() {
             @Override
             protected void updateItem(Processo item, boolean empty) {
@@ -239,80 +172,74 @@ public class IOPanel extends VBox {
                     setStyle("");
                 } else {
                     setText(resolverUsuario(item.getEUID()));
-                    setStyle("-fx-text-fill: #ffff87;");
+                    setStyle("-fx-text-fill: #ffff87; -fx-alignment: CENTER;");
                 }
             }
         });
 
-        // ── READ ─────────────────────────────────────────────────────────────
-        // Valor de /proc/<pid>/io "read_bytes". Ciano quando disponível, cinza se N/A.
-        // Passa o Processo (não Number) para consultar ioByPid e distinguir "sem dado"
-        // de "leu zero bytes" — ambos seriam 0.0 se usássemos Number direto.
         TableColumn<Processo, Processo> colRead = new TableColumn<>("READ");
         colRead.setCellValueFactory(cell ->
             new SimpleObjectProperty<>(cell.getValue()));
-        colRead.setPrefWidth(110);
+        colRead.setPrefWidth(85);
+        colRead.setReorderable(false);
+        colRead.setComparator((a, b) -> {
+            ProcessIOStat sa = ioByPid.get(a.getPid());
+            ProcessIOStat sb = ioByPid.get(b.getPid());
+            double ra = (sa == null || sa.getRead() < 0) ? -1 : sa.getRead();
+            double rb = (sb == null || sb.getRead() < 0) ? -1 : sb.getRead();
+            return Double.compare(ra, rb);
+        });
         colRead.setCellFactory(col -> new TableCell<>() {
             @Override
             protected void updateItem(Processo item, boolean empty) {
                 super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setText(null);
-                    setStyle("");
-                    return;
-                }
+                if (empty || item == null) { setText(null); setStyle(""); return; }
                 ProcessIOStat stat = ioByPid.get(item.getPid());
                 if (stat == null || stat.getRead() < 0) {
                     setText("N/A");
-                    setStyle("-fx-text-fill: #888888;" +
-                             "-fx-alignment: CENTER-RIGHT;" +
-                             "-fx-background-color: transparent;");
+                    setStyle("-fx-text-fill: #555577; -fx-alignment: CENTER; -fx-background-color: transparent;");
                 } else {
                     setText(formatarBytes(stat.getRead()));
-                    setStyle("-fx-text-fill: #00d7ff;" +
-                             "-fx-alignment: CENTER-RIGHT;" +
-                             "-fx-background-color: transparent;");
+                    setStyle("-fx-text-fill: #00d7ff; -fx-alignment: CENTER; -fx-background-color: transparent;");
                 }
             }
         });
 
-        // ── WRITE ────────────────────────────────────────────────────────────
-        // Valor de /proc/<pid>/io "write_bytes". Laranja quando disponível.
         TableColumn<Processo, Processo> colWrite = new TableColumn<>("WRITE");
         colWrite.setCellValueFactory(cell ->
             new SimpleObjectProperty<>(cell.getValue()));
-        colWrite.setPrefWidth(110);
+        colWrite.setPrefWidth(85);
+        colWrite.setReorderable(false);
+        colWrite.setComparator((a, b) -> {
+            ProcessIOStat sa = ioByPid.get(a.getPid());
+            ProcessIOStat sb = ioByPid.get(b.getPid());
+            double wa = (sa == null || sa.getWrite() < 0) ? -1 : sa.getWrite();
+            double wb = (sb == null || sb.getWrite() < 0) ? -1 : sb.getWrite();
+            return Double.compare(wa, wb);
+        });
         colWrite.setCellFactory(col -> new TableCell<>() {
             @Override
             protected void updateItem(Processo item, boolean empty) {
                 super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setText(null);
-                    setStyle("");
-                    return;
-                }
+                if (empty || item == null) { setText(null); setStyle(""); return; }
                 ProcessIOStat stat = ioByPid.get(item.getPid());
                 if (stat == null || stat.getWrite() < 0) {
                     setText("N/A");
-                    setStyle("-fx-text-fill: #888888;" +
-                             "-fx-alignment: CENTER-RIGHT;" +
-                             "-fx-background-color: transparent;");
+                    setStyle("-fx-text-fill: #555577; -fx-alignment: CENTER; -fx-background-color: transparent;");
                 } else {
                     setText(formatarBytes(stat.getWrite()));
-                    setStyle("-fx-text-fill: #ffaf00;" +
-                             "-fx-alignment: CENTER-RIGHT;" +
-                             "-fx-background-color: transparent;");
+                    setStyle("-fx-text-fill: #ffaf00; -fx-alignment: CENTER; -fx-background-color: transparent;");
                 }
             }
         });
 
-        // ── COMMAND ──────────────────────────────────────────────────────────
-        // Prefixo ASCII de hierarquia + comando resolvido via resolverComando().
-        // Kthreads em verde, tasks em branco; fonte Monospaced para alinhamento.
-        TableColumn<Processo, Processo> colCmd = new TableColumn<>("COMMAND");
+        colCmd = new TableColumn<>("COMMAND");
         colCmd.setCellValueFactory(cell ->
             new SimpleObjectProperty<>(cell.getValue()));
         colCmd.setPrefWidth(260);
+        colCmd.setReorderable(false);
+        colCmd.setComparator((a, b) ->
+            resolverComando(a).compareToIgnoreCase(resolverComando(b)));
         colCmd.setCellFactory(col -> new TableCell<>() {
             @Override
             protected void updateItem(Processo item, boolean empty) {
@@ -323,42 +250,79 @@ public class IOPanel extends VBox {
                 } else {
                     String prefix = prefixMap.getOrDefault(item.getPid(), "");
                     setText(prefix + resolverComando(item));
-                    String cor = (item instanceof Kthr) ? "#00d700" : "#ffffff";
+                    String cor = (item instanceof Kthr)          ? "#00d700"
+                               : (item instanceof ProcessoZumbi) ? "#ff5555"
+                               : "#ffffff";
                     setStyle("-fx-text-fill: " + cor + "; -fx-font-family: Monospaced;");
                 }
             }
         });
 
         table.getColumns().addAll(colPid, colUser, colRead, colWrite, colCmd);
+
+        table.setSortPolicy(tv -> false);
+
+        table.getSortOrder().addListener((ListChangeListener<TableColumn<Processo, ?>>) change -> {
+            if (suppressSortEvent || sortChangeListener == null) return;
+            if (table.getSortOrder().isEmpty()) return;
+            TableColumn<Processo, ?> sorted = table.getSortOrder().get(0);
+            String colName = null;
+            if (sorted == colPid)  colName = "PID";
+            if (sorted == colUser) colName = "USER";
+            if (sorted == colCmd)  colName = "COMMAND";
+            if (colName != null) sortChangeListener.accept(colName, sorted.getSortType());
+        });
+
+        colPid.sortTypeProperty().addListener((obs, old, newType) -> {
+            if (suppressSortEvent || sortChangeListener == null) return;
+            if (table.getSortOrder().isEmpty() || table.getSortOrder().get(0) != colPid) return;
+            sortChangeListener.accept("PID", newType);
+        });
+        colUser.sortTypeProperty().addListener((obs, old, newType) -> {
+            if (suppressSortEvent || sortChangeListener == null) return;
+            if (table.getSortOrder().isEmpty() || table.getSortOrder().get(0) != colUser) return;
+            sortChangeListener.accept("USER", newType);
+        });
+        colCmd.sortTypeProperty().addListener((obs, old, newType) -> {
+            if (suppressSortEvent || sortChangeListener == null) return;
+            if (table.getSortOrder().isEmpty() || table.getSortOrder().get(0) != colCmd) return;
+            sortChangeListener.accept("COMMAND", newType);
+        });
     }
 
-    // -------------------------------------------------------------------------
-    // Estilo
-    // -------------------------------------------------------------------------
+    public void setSortChangeListener(BiConsumer<String, TableColumn.SortType> listener) {
+        this.sortChangeListener = listener;
+    }
 
-    /**
-     * Retorna o processo selecionado na tabela, ou null se nenhum estiver selecionado.
-     * Usado pelo MainFrame.executarKill() para encerrar processos no modo IO.
-     */
+    public void applySortByColumn(String column, TableColumn.SortType type) {
+        suppressSortEvent = true;
+        try {
+            if      ("PID"    .equals(column)) { colPid .setSortType(type); table.getSortOrder().setAll(colPid);  }
+            else if ("USER"   .equals(column)) { colUser.setSortType(type); table.getSortOrder().setAll(colUser); }
+            else if ("COMMAND".equals(column)) { colCmd .setSortType(type); table.getSortOrder().setAll(colCmd);  }
+        } finally {
+            suppressSortEvent = false;
+        }
+    }
+
     public Processo getProcessoSelecionado() {
         return table.getSelectionModel().getSelectedItem();
     }
 
-    /**
-     * Define o modo de exibição: true = árvore hierárquica (DFS), false = lista por PID.
-     * Chamado pelo MainFrame quando o usuário pressiona F5 no modo IO.
-     * A mudança entra em vigor no próximo ciclo de update() (até 1 segundo).
-     */
     public void setModoArvore(boolean modoArvore) {
         this.modoArvore = modoArvore;
+        if (modoArvore) {
+            table.getSortOrder().clear();
+            table.setSortPolicy(tv -> false);
+        } else {
+            table.setSortPolicy(null);
+        }
     }
 
-    /** Pede foco para a tabela (chamado pelo MainFrame ao exibir este painel). */
     public void requestTableFocus() {
         table.requestFocus();
     }
 
-    /** Aplica o tema escuro à tabela, idêntico aos outros painéis. */
     private void aplicarEstilo() {
         table.setStyle(
             "-fx-background-color: #1a1a2e;" +
@@ -393,27 +357,14 @@ public class IOPanel extends VBox {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers de formatação
-    // -------------------------------------------------------------------------
-
-    /**
-     * Resolve o texto a exibir na coluna COMMAND, priorizando cmdline sobre comm.
-     *
-     * Comportamento (idêntico ao htop e ao TreePanel):
-     *   - Tasks com cmdline      → cmdline completo ("/usr/bin/python3 script.py")
-     *   - Tasks sem cmdline      → comm como fallback ("bash")
-     *   - Kthreads (sem cmdline) → "[comm]" entre colchetes (ex: "[kworker/0:0]")
-     */
     private String resolverComando(Processo p) {
         if (p instanceof Kthr) {
-            return "[" + p.getComm() + "]";
+            return p.getComm();
         }
         String cmdline = p.getCmdline();
         return cmdline.isEmpty() ? p.getComm() : cmdline;
     }
 
-    /** Formata um valor em bytes para string legível (B, k, M, G). */
     private String formatarBytes(double bytes) {
         if (bytes < 1_000)           return String.format("%.0f B",  bytes);
         if (bytes < 1_000_000)       return String.format("%.1f k",  bytes / 1_000.0);
@@ -421,7 +372,6 @@ public class IOPanel extends VBox {
         return                              String.format("%.2f G",   bytes / 1_000_000_000.0);
     }
 
-    /** Resolve um EUID para o nome de usuário do sistema. */
     private String resolverUsuario(int euid) {
         if (euid == 0) return "root";
         try {
