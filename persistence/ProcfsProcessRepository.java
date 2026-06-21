@@ -46,6 +46,13 @@ public class ProcfsProcessRepository implements ProcessRepository {
         return Integer.parseInt(parts[0]);
     }
 
+    private static long firstLong(String value) {
+        if (value == null) return 0;
+        String[] parts = value.trim().split("\\s+");
+        if (parts.length == 0) return 0;
+        return Long.parseLong(parts[0]);
+    }
+
     private static String parseComm(String line) {
         int firstParen = line.indexOf('(');
         int lastParen  = line.lastIndexOf(')');
@@ -106,10 +113,10 @@ public class ProcfsProcessRepository implements ProcessRepository {
                             task.setState(state);
 
                             if (task instanceof Task t) {
-                                int virt     = firstInt(kv.get("VmSize"));
-                                int res      = firstInt(kv.get("VmRSS"));
-                                int rssFile  = firstInt(kv.get("RssFile"));
-                                int rssShmem = firstInt(kv.get("RssShmem"));
+                                long virt     = firstLong(kv.get("VmSize"));
+                                long res      = firstLong(kv.get("VmRSS"));
+                                long rssFile  = firstLong(kv.get("RssFile"));
+                                long rssShmem = firstLong(kv.get("RssShmem"));
                                 t.setVirt(virt);
                                 t.setRes(res);
                                 t.setShr(rssFile + rssShmem);

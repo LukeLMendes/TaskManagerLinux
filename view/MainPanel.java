@@ -16,7 +16,9 @@ import model.Task;
 import model.Kthr;
 import model.ProcessoZumbi;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.BiConsumer;
 
 public class MainPanel extends VBox {
@@ -32,8 +34,10 @@ public class MainPanel extends VBox {
     private boolean suppressSortEvent = false;
 
     private String filtro = "";
+    private Map<Integer, String> anotacoes = new HashMap<>();
 
     public void setFiltro(String f) { this.filtro = f.trim().toLowerCase(); }
+    public void setAnotacoes(Map<Integer, String> anotacoes) { this.anotacoes = anotacoes; }
     public void setTableContextMenu(javafx.scene.control.ContextMenu menu) { table.setContextMenu(menu); }
 
     private double memTotalKB = 1.0;
@@ -290,6 +294,25 @@ public class MainPanel extends VBox {
             }
         });
 
+        TableColumn<Processo, String> colNote = new TableColumn<>("NOTE");
+        colNote.setCellValueFactory(cell ->
+            new SimpleStringProperty(anotacoes.getOrDefault(cell.getValue().getPid(), "")));
+        colNote.setPrefWidth(80);
+        colNote.setReorderable(false);
+        colNote.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null || item.isBlank()) {
+                    setText(null);
+                    setStyle("");
+                } else {
+                    setText(item);
+                    setStyle("-fx-text-fill: #ffaf00; -fx-alignment: CENTER;");
+                }
+            }
+        });
+
         colCmd = new TableColumn<>("COMMAND");
         colCmd.setCellValueFactory(cell ->
             new javafx.beans.property.SimpleObjectProperty<>(cell.getValue()));
@@ -317,7 +340,7 @@ public class MainPanel extends VBox {
         table.getColumns().addAll(
             colPid, colUser, colPri, colNi,
             colVirt, colRes, colShr, colState,
-            colCpu, colMem, colThr, colPpid, colCmd
+            colCpu, colMem, colThr, colPpid, colNote, colCmd
         );
 
         colPid.setSortType(TableColumn.SortType.ASCENDING);

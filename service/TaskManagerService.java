@@ -12,6 +12,7 @@ import persistence.ProcessRepository;
 import persistence.IORepository;
 import persistence.SnapshotRepository;
 import persistence.ProcessKiller;
+import persistence.FileAnnotationRepository;
 
 import exception.SnapshotReadException;
 import exception.SnapshotWriteException;
@@ -33,6 +34,9 @@ public class TaskManagerService {
     private List<ProcessIOStat> taskIOStats;
     private SystemSnapshot systemSnapshot;
 
+    private final AnnotationService annotationService =
+            new AnnotationService(new FileAnnotationRepository());
+
     public TaskManagerService(SystemRepository systemRepository,
                                ProcessRepository processRepository,
                                IORepository ioRepository,
@@ -43,6 +47,7 @@ public class TaskManagerService {
         this.ioRepository       = ioRepository;
         this.snapshotRepository = snapshotRepository;
         this.processKiller      = processKiller;
+        try { annotationService.load(); } catch (exception.SnapshotReadException ignored) {}
     }
 
     public void refresh() {
@@ -50,6 +55,7 @@ public class TaskManagerService {
         kthreads = processRepository.readKthr();
 
         taskIOStats = ioRepository.readTaskIO(tasks.stream()
+                .filter(p -> p instanceof Task)
                 .map(p -> (Task) p)
                 .collect(java.util.stream.Collectors.toList()));
 
@@ -135,6 +141,18 @@ public class TaskManagerService {
         if (tasks == null || tasks.isEmpty()) return null;
         return ProcsTree.toTree(tasks);
     }
+
+    public void adicionarAnotacao(int pid, String texto) throws exception.SnapshotWriteException {
+        annotationService.add(pid, texto);
+        annotationService.save();
+    }
+
+    public void removerAnotacao(int pid) throws exception.SnapshotWriteException {
+        annotationService.remove(pid);
+        annotationService.save();
+    }
+
+    public AnnotationService getAnnotationService() { return annotationService; }
 
     public List<Processo> getTasks() { return tasks; }
     public List<Processo> getKthreads() { return kthreads; }

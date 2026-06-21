@@ -36,11 +36,11 @@ public class ProcfsIORepository implements IORepository {
         return kv;
     }
 
-    private static int firstInt(String value) {
+    private static long firstLong(String value) {
         if (value == null) return 0;
         String[] parts = value.trim().split("\\s+");
         if (parts.length == 0) return 0;
-        return Integer.parseInt(parts[0]);
+        return Long.parseLong(parts[0]);
     }
 
     @Override
@@ -52,8 +52,8 @@ public class ProcfsIORepository implements IORepository {
                 Path ioFile = Paths.get("/proc" + "/" + tasks.get(i).getPid() + "/io");
                 try {
                     Map<String, String> kv = readIOKeyValues(ioFile);
-                    int readBytes  = firstInt(kv.get("read_bytes"));
-                    int writeBytes = firstInt(kv.get("write_bytes"));
+                    long readBytes  = firstLong(kv.get("read_bytes"));
+                    long writeBytes = firstLong(kv.get("write_bytes"));
                     processIO.setPID(tasks.get(i).getPid());
                     processIO.setEUID(tasks.get(i).getEUID());
                     processIO.setRead(readBytes);
@@ -82,8 +82,8 @@ public class ProcfsIORepository implements IORepository {
                 Path ioFile = Paths.get("/proc" + "/" + kthrs.get(i).getPid() + "/io");
                 try {
                     Map<String, String> kv = readIOKeyValues(ioFile);
-                    double readBytes  = firstInt(kv.get("read_bytes"));
-                    double writeBytes = firstInt(kv.get("write_bytes"));
+                    long readBytes  = firstLong(kv.get("read_bytes"));
+                    long writeBytes = firstLong(kv.get("write_bytes"));
                     processIO.setPID(kthrs.get(i).getPid());
                     processIO.setEUID(kthrs.get(i).getEUID());
                     processIO.setRead(readBytes);

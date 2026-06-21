@@ -19,10 +19,12 @@ public class TreePanel extends VBox {
     private final TableView<Processo> table;
     private final ObservableList<Processo> processList;
     private final Map<Integer, String> prefixMap = new HashMap<>();
+    private Map<Integer, String> anotacoes = new HashMap<>();
     private double memTotalKB = 1.0;
     private String filtro = "";
 
     public void setFiltro(String f) { this.filtro = f.trim().toLowerCase(); }
+    public void setAnotacoes(Map<Integer, String> anotacoes) { this.anotacoes = anotacoes; }
     public void setTableContextMenu(javafx.scene.control.ContextMenu menu) { table.setContextMenu(menu); }
 
     public TreePanel() {
@@ -308,6 +310,25 @@ public class TreePanel extends VBox {
             }
         });
 
+        TableColumn<Processo, String> colNote = new TableColumn<>("NOTE");
+        colNote.setCellValueFactory(cell ->
+            new SimpleStringProperty(anotacoes.getOrDefault(cell.getValue().getPid(), "")));
+        colNote.setPrefWidth(80);
+        colNote.setReorderable(false);
+        colNote.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null || item.isBlank()) {
+                    setText(null);
+                    setStyle("");
+                } else {
+                    setText(item);
+                    setStyle("-fx-text-fill: #ffaf00; -fx-alignment: CENTER;");
+                }
+            }
+        });
+
         TableColumn<Processo, Processo> colCmd = new TableColumn<>("COMMAND");
         colCmd.setCellValueFactory(cell ->
             new SimpleObjectProperty<>(cell.getValue()));
@@ -334,7 +355,7 @@ public class TreePanel extends VBox {
         table.getColumns().addAll(
             colPid, colUser, colPri, colNi,
             colVirt, colRes, colShr, colState,
-            colCpu, colMem, colThr, colCmd
+            colCpu, colMem, colThr, colNote, colCmd
         );
 
         table.setSortPolicy(tv -> false);

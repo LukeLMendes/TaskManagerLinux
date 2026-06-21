@@ -30,11 +30,13 @@ public class IOPanel extends VBox {
 
     private final Map<Integer, String>      prefixMap = new HashMap<>();
     private final Map<Integer, ProcessIOStat> ioByPid = new HashMap<>();
+    private Map<Integer, String> anotacoes = new HashMap<>();
 
     private boolean modoArvore = true;
     private String filtro = "";
 
     public void setFiltro(String f) { this.filtro = f.trim().toLowerCase(); }
+    public void setAnotacoes(Map<Integer, String> anotacoes) { this.anotacoes = anotacoes; }
     public void setTableContextMenu(javafx.scene.control.ContextMenu menu) { table.setContextMenu(menu); }
 
     public IOPanel() {
@@ -233,6 +235,25 @@ public class IOPanel extends VBox {
             }
         });
 
+        TableColumn<Processo, String> colNote = new TableColumn<>("NOTE");
+        colNote.setCellValueFactory(cell ->
+            new SimpleStringProperty(anotacoes.getOrDefault(cell.getValue().getPid(), "")));
+        colNote.setPrefWidth(80);
+        colNote.setReorderable(false);
+        colNote.setCellFactory(col -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null || item.isBlank()) {
+                    setText(null);
+                    setStyle("");
+                } else {
+                    setText(item);
+                    setStyle("-fx-text-fill: #ffaf00; -fx-alignment: CENTER;");
+                }
+            }
+        });
+
         colCmd = new TableColumn<>("COMMAND");
         colCmd.setCellValueFactory(cell ->
             new SimpleObjectProperty<>(cell.getValue()));
@@ -258,7 +279,7 @@ public class IOPanel extends VBox {
             }
         });
 
-        table.getColumns().addAll(colPid, colUser, colRead, colWrite, colCmd);
+        table.getColumns().addAll(colPid, colUser, colRead, colWrite, colNote, colCmd);
 
         table.setSortPolicy(tv -> false);
 

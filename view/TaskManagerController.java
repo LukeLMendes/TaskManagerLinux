@@ -19,6 +19,7 @@ import exception.SnapshotReadException;
 import exception.DomainException;
 
 import java.util.List;
+import java.util.Map;
 
 public class TaskManagerController {
 
@@ -48,14 +49,19 @@ public class TaskManagerController {
         refreshService.setOnFailed(event -> {
             Throwable erro = refreshService.getException();
             if (erro != null) {
-                System.err.println("[TaskManagerController] Erro no refresh: "
-                                   + erro.getMessage());
+                mostrarErro("Erro no refresh",
+                    "Falha ao ler dados do sistema: " + erro.getMessage());
             }
         });
     }
 
     public void iniciar() {
-        service.refresh();
+        try {
+            service.refresh();
+        } catch (Exception e) {
+            mostrarErro("Erro na inicialização",
+                "Falha ao ler dados do sistema: " + e.getMessage());
+        }
         atualizarUI();
         refreshService.start();
     }
@@ -95,6 +101,26 @@ public class TaskManagerController {
         }
     }
 
+    public void adicionarAnotacao(int pid, String texto) {
+        try {
+            service.adicionarAnotacao(pid, texto);
+        } catch (SnapshotWriteException e) {
+            mostrarErro("Anotação", "Falha ao salvar anotação: " + e.getMessage());
+        }
+    }
+
+    public void removerAnotacao(int pid) {
+        try {
+            service.removerAnotacao(pid);
+        } catch (SnapshotWriteException e) {
+            mostrarErro("Anotação", "Falha ao salvar anotação: " + e.getMessage());
+        }
+    }
+
+    public Map<Integer, String> getAnotacoes() {
+        return service.getAnnotationService().getAll();
+    }
+
     public void reniceProceso(int pid, int novoNice) {
         try {
             service.reniceProceso(pid, novoNice);
@@ -127,26 +153,10 @@ public class TaskManagerController {
     }
 
     private void mostrarErro(String titulo, String mensagem) {
-        Platform.runLater(() -> {
-            javafx.scene.control.Alert alert =
-                new javafx.scene.control.Alert(
-                    javafx.scene.control.Alert.AlertType.ERROR);
-            alert.setTitle(titulo);
-            alert.setHeaderText(null);
-            alert.setContentText(mensagem);
-            alert.showAndWait();
-        });
+        Platform.runLater(() -> frame.setStatus("Erro — " + titulo + ": " + mensagem));
     }
 
     private void mostrarInfo(String titulo, String mensagem) {
-        Platform.runLater(() -> {
-            javafx.scene.control.Alert alert =
-                new javafx.scene.control.Alert(
-                    javafx.scene.control.Alert.AlertType.INFORMATION);
-            alert.setTitle(titulo);
-            alert.setHeaderText(null);
-            alert.setContentText(mensagem);
-            alert.showAndWait();
-        });
+        Platform.runLater(() -> frame.setStatus(titulo + ": " + mensagem));
     }
 }

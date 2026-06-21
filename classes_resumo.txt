@@ -1,0 +1,201 @@
+================================================================================
+  TASKMANAGER LINUX — RESUMO DE CLASSES (até 4 itens por classe)
+================================================================================
+
+================================================================================
+  PACOTE: exception
+================================================================================
+
+DomainException  (extends RuntimeException)
+  + DomainException(String message)
+  + DomainException(String message, Throwable cause)
+
+InvalidPidException  (extends DomainException)
+  - int pid
+  + InvalidPidException(String message, int pid)
+  + int getPid()
+
+KillProcessException  (extends DomainException)
+  + KillProcessException(String message)
+  + KillProcessException(String message, Throwable cause)
+
+SnapshotReadException  (extends DomainException)
+  + SnapshotReadException(String message, Throwable cause)
+
+SnapshotWriteException  (extends DomainException)
+  + SnapshotWriteException(String message, Throwable cause)
+
+================================================================================
+  PACOTE: model
+================================================================================
+
+Processo  (abstract, Serializable)
+  - int pid
+  - int ppid
+  - char state
+  + abstract String getTipo()
+
+Task  (extends Processo)
+  - long res
+  - double cpuPct
+  + void setCpuPct(double cpuPct)
+  + String getTipo()   → "Task"
+
+Kthr  (extends Processo)
+  - int kthreads
+  + void setKthreads(int kthreads)
+  + String getTipo()   → "Kthr"
+
+ProcessoZumbi  (extends Processo)
+  + String getTipo()   → "Zumbi"
+
+ProcessIOStat  (Serializable)
+  - double readBytes
+  - double writeBytes
+  + double getRead()
+  + double getWrite()
+
+SnapshotData  (Serializable)
+  - long timestamp
+  - List<Processo> tasks
+  + List<Processo> getKthreads()
+  + int totalProcesses()
+
+SystemSnapshot  (Serializable)
+  - List<long[]> cpu_infos
+  - double[] loadAvg
+  + double getMemTotal()
+  + double getUptime()
+
+================================================================================
+  PACOTE: persistence
+================================================================================
+
+ProcessRepository  (interface)
+  + List<Processo> readTask()
+  + List<Processo> readKthr()
+
+ProcfsProcessRepository  (implements ProcessRepository)
+  - Map<Integer, long[]> prevTicks
+  + List<Processo> readTask()
+  + List<Processo> readKthr()
+
+SystemRepository  (interface)
+  + int running()
+  + Map<String, Long> memInfo()
+  + List<long[]> cpu_infos()
+  + double[] loadAvg()
+
+ProcfsSystemRepository  (implements SystemRepository)
+  + int running()
+  + Map<String, Long> memInfo()
+  + List<long[]> cpu_infos()
+  + double uptime()
+
+IORepository  (interface)
+  + List<ProcessIOStat> readTaskIO(List<Task> tasks)
+  + List<ProcessIOStat> readKthrIO(List<Kthr> kthrs)
+
+ProcfsIORepository  (implements IORepository)
+  + List<ProcessIOStat> readTaskIO(List<Task> tasks)
+  + List<ProcessIOStat> readKthrIO(List<Kthr> kthrs)
+
+SnapshotRepository  (interface)
+  + void save(SnapshotData data)
+  + SnapshotData loadLatest()
+  + List<SnapshotData> loadAll()
+
+FileSnapshotRepository  (implements SnapshotRepository)
+  - Path snapshotDir
+  + void save(SnapshotData data)
+  + SnapshotData loadLatest()
+
+AnnotationRepository  (interface)
+  + Map<Integer, String> load()
+  + void save(Map<Integer, String> annotations)
+
+FileAnnotationRepository  (implements AnnotationRepository)
+  - static final String FILE_PATH = "annotations.dat"
+  + Map<Integer, String> load()
+  + void save(Map<Integer, String> annotations)
+
+ProcessKiller  (interface)
+  + void killProcess(int pid)
+
+LinuxProcessKiller  (implements ProcessKiller)
+  - static final int SIGTERM = 15
+  - static final int SIGKILL = 9
+  + void killProcess(int pid)
+  + void forceKill(int pid)
+
+================================================================================
+  PACOTE: service
+================================================================================
+
+TaskManagerService
+  - List<Processo> tasks
+  - SystemSnapshot systemSnapshot
+  + void refresh()
+  + void killProcess(int pid)
+
+AnnotationService
+  - Map<Integer, String> annotations
+  + void add(int pid, String text)
+  + void remove(int pid)
+  + void load()
+
+Kill
+  - ProcessKiller killer
+  + void kill(int pid)
+  + void forceKillIfNeeded(int pid)
+  + boolean isAlive(int pid)
+
+ProcsTree
+  + static List<Processo> createList(List<Processo> processes, Processo proc)
+  + static TreeNode<Processo> toTree(List<Processo> processes)
+
+TreeNode<T>
+  - T data
+  - List<TreeNode<T>> children
+  + void add(TreeNode<T> child)
+  + T getData()
+
+================================================================================
+  PACOTE: view
+================================================================================
+
+ViewMode  (enum)
+  MAIN
+  IO
+
+MainFrame  (extends Application)
+  - TaskManagerController controller
+  - ViewMode viewMode
+  + void start(Stage stage)
+  + void atualizarCabecalho(SystemSnapshot snap)
+
+TaskManagerController
+  - TaskManagerService service
+  - ScheduledService<Void> refreshService
+  + void iniciar()
+  + void matarProcesso(Processo processo)
+
+MainPanel  (extends VBox)
+  - TableView<Processo> table
+  - String filtro
+  + void update(List<Processo> tasks, List<Processo> kthreads, double memTotalKB)
+  + Processo getProcessoSelecionado()
+
+TreePanel  (extends VBox)
+  - Map<Integer, String> prefixMap
+  - String filtro
+  + void update(List<Processo> tasks, List<Processo> kthreads, double memTotalKB)
+  - void dfs(Processo node, String branchStr, String contStr, ...)
+
+IOPanel  (extends VBox)
+  - Map<Integer, ProcessIOStat> ioByPid
+  - boolean modoArvore
+  + void update(List<ProcessIOStat> stats, List<Processo> tasks, List<Processo> kthreads)
+  + void setModoArvore(boolean modoArvore)
+
+================================================================================

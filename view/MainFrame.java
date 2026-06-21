@@ -62,6 +62,17 @@ public class MainFrame extends Application {
 
     private StackPane painelCentral;
 
+    private Label statusLabel;
+    private Label inputPromptLabel;
+    private TextField inputField;
+    private HBox inputBox;
+    private String modoInput = null;
+    private int pidInputAtual = -1;
+    private boolean killPendente = false;
+    private int pidKillPendente = -1;
+    private Button btnCloseStatus;
+    private javafx.scene.control.TextArea rodapeExpandido;
+
     @Override
     public void start(Stage stage) {
 
@@ -81,6 +92,9 @@ public class MainFrame extends Application {
 
         mainPanel.setSortChangeListener((col, type) -> ioPanel.applySortByColumn(col, type));
         ioPanel.setSortChangeListener((col, type)   -> mainPanel.applySortByColumn(col, type));
+        mainPanel.setAnotacoes(controller.getAnotacoes());
+        treePanel.setAnotacoes(controller.getAnotacoes());
+        ioPanel.setAnotacoes(controller.getAnotacoes());
 
         ioPanel.setModoArvore(modoArvore);
 
@@ -99,11 +113,12 @@ public class MainFrame extends Application {
 
         scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
             switch (event.getCode()) {
-                case TAB -> { trocarModoTab();      event.consume(); }
-                case F5  -> { alternarModoArvore(); event.consume(); }
-                case F9  -> { executarKill();       event.consume(); }
-                case F10 -> { controller.parar(); Platform.exit(); event.consume(); }
-                default  -> {}
+                case TAB    -> { trocarModoTab();      event.consume(); }
+                case F5     -> { alternarModoArvore(); event.consume(); }
+                case F9     -> { executarKill();       event.consume(); }
+                case F10    -> { controller.parar(); Platform.exit(); event.consume(); }
+                case ESCAPE -> { if (modoInput != null) { cancelarInput(); event.consume(); } }
+                default     -> {}
             }
         });
 
@@ -315,7 +330,22 @@ public class MainFrame extends Application {
         destacarAba(btnIO,   proximo == ViewMode.IO);
     }
 
-    private HBox criarRodape() {
+    private VBox criarRodape() {
+        rodapeExpandido = new javafx.scene.control.TextArea();
+        rodapeExpandido.setEditable(false);
+        rodapeExpandido.setWrapText(true);
+        rodapeExpandido.setPrefHeight(80);
+        rodapeExpandido.setStyle(
+            "-fx-control-inner-background: #0d0d22;" +
+            "-fx-text-fill: #ffff87;" +
+            "-fx-font-size: 13px;" +
+            "-fx-font-family: Monospaced;" +
+            "-fx-border-color: #005f87;" +
+            "-fx-border-width: 1 0 0 0;"
+        );
+        rodapeExpandido.setVisible(false);
+        rodapeExpandido.setManaged(false);
+
         HBox rodape = new HBox(0);
         rodape.setStyle("-fx-background-color: #0a0a1e;");
         rodape.setAlignment(Pos.CENTER_LEFT);
@@ -338,8 +368,81 @@ public class MainFrame extends Application {
             Platform.exit();
         });
 
-        rodape.getChildren().addAll(btnF5Tree, btnKill, btnSnap, btnCarregar, btnQuit);
-        return rodape;
+        javafx.scene.layout.Region spacer = new javafx.scene.layout.Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        statusLabel = new Label("");
+        statusLabel.setStyle(
+            "-fx-text-fill: #ffff87;" +
+            "-fx-font-size: 12px;" +
+            "-fx-font-family: Monospaced;" +
+            "-fx-padding: 0 4 0 8;" +
+            "-fx-cursor: hand;"
+        );
+        statusLabel.setOnMouseClicked(e -> alternarRodapeExpandido());
+
+        btnCloseStatus = new Button("✕");
+        btnCloseStatus.setVisible(false);
+        btnCloseStatus.setStyle(
+            "-fx-background-color: transparent;" +
+            "-fx-text-fill: #aaaaaa;" +
+            "-fx-font-size: 11px;" +
+            "-fx-cursor: hand;" +
+            "-fx-padding: 2 6 2 6;"
+        );
+        btnCloseStatus.setOnAction(e -> setStatus(""));
+
+        inputPromptLabel = new Label("");
+        inputPromptLabel.setStyle(
+            "-fx-text-fill: #00d700;" +
+            "-fx-font-size: 11px;" +
+            "-fx-padding: 0 4 0 8;"
+        );
+
+        inputField = new TextField();
+        inputField.setPrefWidth(180);
+        inputField.setStyle(
+            "-fx-background-color: #1e1e38;" +
+            "-fx-text-fill: #ffffff;" +
+            "-fx-border-color: #005f87;" +
+            "-fx-border-width: 1;" +
+            "-fx-padding: 2 6 2 6;"
+        );
+        inputField.setOnAction(e -> confirmarInput());
+        inputField.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) cancelarInput();
+        });
+
+        Button btnOk = new Button("OK");
+        btnOk.setStyle(
+            "-fx-background-color: #005f87;" +
+            "-fx-text-fill: #ffffff;" +
+            "-fx-font-weight: bold;" +
+            "-fx-cursor: hand;" +
+            "-fx-padding: 3 8 3 8;"
+        );
+        btnOk.setOnAction(e -> confirmarInput());
+
+        Button btnCancelar = new Button("✕");
+        btnCancelar.setStyle(
+            "-fx-background-color: #5f0000;" +
+            "-fx-text-fill: #ffffff;" +
+            "-fx-font-weight: bold;" +
+            "-fx-cursor: hand;" +
+            "-fx-padding: 3 8 3 8;"
+        );
+        btnCancelar.setOnAction(e -> cancelarInput());
+
+        inputBox = new HBox(4, inputPromptLabel, inputField, btnOk, btnCancelar);
+        inputBox.setAlignment(Pos.CENTER_LEFT);
+        inputBox.setVisible(false);
+
+        rodape.getChildren().addAll(btnF5Tree, btnKill, btnSnap, btnCarregar, btnQuit,
+                                    spacer, statusLabel, btnCloseStatus, inputBox);
+
+        VBox wrapper = new VBox(0, rodapeExpandido, rodape);
+        wrapper.setStyle("-fx-background-color: #0a0a1e;");
+        return wrapper;
     }
 
     private Button criarBotaoRodape(String prefixo, String texto, String corFundo) {
@@ -441,7 +544,9 @@ public class MainFrame extends Application {
         uptimeLabel.setText("Uptime: " + formatarUptime(snap.getUptime()));
 
         double[] la = snap.getLoadAvg();
-        loadAvgLabel.setText(String.format("Load average: %.2f %.2f %.2f", la[0], la[1], la[2]));
+        if (la != null && la.length >= 3) {
+            loadAvgLabel.setText(String.format("Load average: %.2f %.2f %.2f", la[0], la[1], la[2]));
+        }
     }
 
     public MainPanel getMainPanel() { return mainPanel; }
@@ -449,74 +554,64 @@ public class MainFrame extends Application {
     public IOPanel   getIOPanel()   { return ioPanel;   }
 
     private void executarKill() {
-        model.Processo selecionado = switch (viewMode) {
-            case MAIN -> modoArvore
-                ? treePanel.getProcessoSelecionado()
-                : mainPanel.getProcessoSelecionado();
-            case IO   -> ioPanel.getProcessoSelecionado();
-        };
+        model.Processo selecionado = getProcessoSelecionadoAtivo();
         if (selecionado == null) {
-            mostrarAlertaSemSelecao();
+            setStatus("Nenhum processo selecionado.");
+            killPendente = false;
+            return;
+        }
+        if (!killPendente || pidKillPendente != selecionado.getPid()) {
+            killPendente = true;
+            pidKillPendente = selecionado.getPid();
+            setStatus("Pressione F9 novamente para encerrar PID=" +
+                      selecionado.getPid() + " (" + selecionado.getComm() + ")");
         } else {
-            if (confirmarKill(selecionado.getPid())) {
-                controller.matarProcesso(selecionado);
-            }
+            killPendente = false;
+            setStatus("");
+            controller.matarProcesso(selecionado);
         }
     }
 
-    private boolean confirmarKill(int pid) {
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.setTitle("Encerrar processo");
-        alert.setHeaderText("Encerrar PID=" + pid + "?");
-        alert.setContentText(
-            "Um sinal SIGTERM será enviado ao processo.\n" +
-            "O processo pode não encerrar imediatamente.");
-        return alert.showAndWait()
-                    .filter(r -> r == ButtonType.OK)
-                    .isPresent();
-    }
-
-    private void mostrarAlertaSemSelecao() {
-        Alert alert = new Alert(Alert.AlertType.WARNING);
-        alert.setTitle("Nenhum processo selecionado");
-        alert.setHeaderText(null);
-        alert.setContentText("Selecione um processo na tabela antes de usar Kill.");
-        alert.showAndWait();
-    }
 
     private void configurarMenuContexto() {
         javafx.scene.control.ContextMenu menu = new javafx.scene.control.ContextMenu();
+
+        javafx.scene.control.MenuItem itemAnotacao =
+            new javafx.scene.control.MenuItem("Adicionar/Editar Anotação");
+        itemAnotacao.setOnAction(e -> {
+            Processo p = getProcessoSelecionadoAtivo();
+            if (p == null) { setStatus("Nenhum processo selecionado."); return; }
+            String atual = controller.getAnotacoes().getOrDefault(p.getPid(), "");
+            mostrarInput("Anotação — PID " + p.getPid() + " (" + p.getComm() + "):", atual, "ANOTACAO", p.getPid());
+        });
+
+        javafx.scene.control.MenuItem itemRemoverAnotacao =
+            new javafx.scene.control.MenuItem("Remover Anotação");
+        itemRemoverAnotacao.setOnAction(e -> {
+            Processo p = getProcessoSelecionadoAtivo();
+            if (p == null) { setStatus("Nenhum processo selecionado."); return; }
+            controller.removerAnotacao(p.getPid());
+        });
 
         javafx.scene.control.MenuItem itemRenice =
             new javafx.scene.control.MenuItem("Renice (Editar Prioridade)");
         itemRenice.setOnAction(e -> {
             Processo p = getProcessoSelecionadoAtivo();
-            if (p == null) { mostrarAlertaSemSelecao(); return; }
-            javafx.scene.control.TextInputDialog tid =
-                new javafx.scene.control.TextInputDialog(String.valueOf(p.getNice()));
-            tid.setTitle("Renice");
-            tid.setHeaderText("Novo Nice (-20 a +19) para PID " + p.getPid()
-                + " (" + p.getComm() + ")");
-            tid.setContentText("Nice:");
-            tid.showAndWait().ifPresent(s -> {
-                try {
-                    controller.reniceProceso(p.getPid(), Integer.parseInt(s.trim()));
-                } catch (NumberFormatException ex) {
-                    Alert err = new Alert(Alert.AlertType.ERROR);
-                    err.setContentText("Valor inválido: " + s);
-                    err.showAndWait();
-                }
-            });
+            if (p == null) { setStatus("Nenhum processo selecionado."); return; }
+            mostrarInput("Nice (-20 a +19) — PID " + p.getPid() + " (" + p.getComm() + "):",
+                         String.valueOf(p.getNice()), "RENICE", p.getPid());
         });
 
-        javafx.scene.control.SeparatorMenuItem sep =
+        javafx.scene.control.SeparatorMenuItem sep1 =
+            new javafx.scene.control.SeparatorMenuItem();
+        javafx.scene.control.SeparatorMenuItem sep2 =
             new javafx.scene.control.SeparatorMenuItem();
 
         javafx.scene.control.MenuItem itemKill =
             new javafx.scene.control.MenuItem("Kill Processo (SIGTERM)");
         itemKill.setOnAction(e -> executarKill());
 
-        menu.getItems().addAll(itemRenice, sep, itemKill);
+        menu.getItems().addAll(itemAnotacao, itemRemoverAnotacao, sep1, itemRenice, sep2, itemKill);
 
         mainPanel.setTableContextMenu(menu);
         treePanel.setTableContextMenu(menu);
@@ -614,6 +709,58 @@ public class MainFrame extends Application {
         long mm    = (total % 3600) / 60;
         long ss    = total % 60;
         return String.format("%02d:%02d:%02d", hh, mm, ss);
+    }
+
+    public void setStatus(String msg) {
+        statusLabel.setText(msg);
+        btnCloseStatus.setVisible(!msg.isEmpty());
+        rodapeExpandido.setText(msg);
+        if (msg.isEmpty()) {
+            killPendente = false;
+            rodapeExpandido.setVisible(false);
+            rodapeExpandido.setManaged(false);
+        }
+    }
+
+    private void mostrarInput(String prompt, String valorAtual, String modo, int pid) {
+        modoInput = modo;
+        pidInputAtual = pid;
+        inputPromptLabel.setText(prompt);
+        inputField.setText(valorAtual);
+        statusLabel.setText("");
+        inputBox.setVisible(true);
+        inputField.requestFocus();
+        inputField.selectAll();
+    }
+
+    private void confirmarInput() {
+        String valor = inputField.getText().trim();
+        String modo  = modoInput;
+        int pid      = pidInputAtual;
+        cancelarInput();
+        if ("ANOTACAO".equals(modo)) {
+            if (!valor.isBlank()) controller.adicionarAnotacao(pid, valor);
+        } else if ("RENICE".equals(modo)) {
+            try {
+                controller.reniceProceso(pid, Integer.parseInt(valor));
+            } catch (NumberFormatException ex) {
+                setStatus("Valor inválido: " + valor);
+            }
+        }
+    }
+
+    private void alternarRodapeExpandido() {
+        if (statusLabel.getText().isEmpty()) return;
+        boolean abrir = !rodapeExpandido.isVisible();
+        rodapeExpandido.setVisible(abrir);
+        rodapeExpandido.setManaged(abrir);
+    }
+
+    private void cancelarInput() {
+        modoInput = null;
+        pidInputAtual = -1;
+        inputField.clear();
+        inputBox.setVisible(false);
     }
 
     private String gerarCSS() {
